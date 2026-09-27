@@ -333,18 +333,15 @@ def ensure_ios_compatible_mp4(input_path: str) -> str:
     # If ffprobe is available, only trust the copy-remux as "done" when the codecs are iOS-friendly.
     # If ffprobe is NOT available, we still do a copy-remux (better streaming) and stop there.
     if ext.lower() == ".mp4" and (not ffprobe_available() or is_ios_playable_mp4(input_path)):
-        # If it's already faststart, keep as-is (avoid rewriting huge files).
-        if mp4_faststart_like(input_path) is True:
-            return output_path
-
         ok = _run(["ffmpeg", "-y", "-i", input_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", tmp_path])
         if ok and os.path.exists(tmp_path):
             try:
                 os.replace(tmp_path, output_path)
             except Exception:
                 pass
-            # Double-check and enforce faststart if needed.
-            if mp4_faststart_like(output_path) is False:
+            # Enforce faststart when we can't confirm it's already OK.
+            # (Some files are hard to detect; a copy-remux is safe and keeps codecs.)
+            if mp4_faststart_like(output_path) is not True:
                 ok2 = _run(["ffmpeg", "-y", "-i", output_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", remux_tmp_path])
                 if ok2 and os.path.exists(remux_tmp_path):
                     try:
@@ -396,8 +393,8 @@ def ensure_ios_compatible_mp4(input_path: str) -> str:
             except Exception:
                 pass
 
-        # Enforce faststart for smoother iOS/mobile seeking when the parser can detect it's missing.
-        if mp4_faststart_like(output_path) is False:
+        # Enforce faststart for smoother iOS/mobile seeking when we can't confirm it's already OK.
+        if mp4_faststart_like(output_path) is not True:
             ok2 = _run(["ffmpeg", "-y", "-i", output_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", remux_tmp_path])
             if ok2 and os.path.exists(remux_tmp_path):
                 try:
@@ -1859,6 +1856,37 @@ def _background_prepare_uploaded_video(episode_id: int, input_path: str):
                 pass
 
 
+def _background_optimize_episode_file(episode_id: int, abs_path: str, source_type: str):
+    """Remux/transcode an existing episode file to improve playback (faststart + iOS codecs)."""
+    with app.app_context():
+        try:
+            converted_path = ensure_ios_compatible_mp4(abs_path)
+            rel_path = video_storage_path(converted_path)
+
+            conn = get_db_connection()
+            conn.execute(
+                """
+                UPDATE episodes
+                SET file_path = ?, source_type = ?, status = 'ready'
+                WHERE id = ?
+                """,
+                (rel_path, source_type, episode_id),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            try:
+                conn = get_db_connection()
+                conn.execute(
+                    "UPDATE episodes SET status = 'error' WHERE id = ?",
+                    (episode_id,),
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+
 def download_drive_file(file_id: str, series_id: int) -> str:
     import gdown
 
@@ -2171,7 +2199,7 @@ def stream_episode(episode_id):
         status = episode["status"] if "status" in episode.keys() else None
     except Exception:
         status = None
-    if status == "processing":
+    if status in ("processing", "optimizing"):
         return Response("processing", status=503, headers={"Retry-After": "30"})
     if status == "error":
         abort(404)
@@ -3697,7 +3725,7 @@ def admin_episodes(series_id):
             ep_status = ep["status"] if "status" in ep.keys() else None
         except Exception:
             ep_status = None
-        if ep_status in ("processing", "error"):
+        if ep_status in ("processing", "optimizing", "error"):
             continue
 
         file_path = None
@@ -3774,6 +3802,56 @@ def admin_toggle_episode(episode_id):
     conn.close()
 
     flash("อัปเดตสถานะการเปิด/ปิดตอนเรียบร้อยแล้ว", "success")
+    return redirect(url_for("admin_episodes", series_id=series_id))
+
+@app.route("/admin/episodes/<int:episode_id>/optimize_streaming", methods=["POST"])
+def admin_optimize_episode_streaming(episode_id):
+    if not admin_required():
+        return redirect(url_for("admin_login"))
+
+    conn = get_db_connection()
+    ep = conn.execute(
+        "SELECT id, series_id, source_type, file_path, status FROM episodes WHERE id = ?",
+        (episode_id,),
+    ).fetchone()
+
+    if ep is None:
+        conn.close()
+        flash("ไม่พบตอนนี้", "error")
+        return redirect(url_for("admin_series"))
+
+    series_id = ep["series_id"]
+    status = ep["status"] if "status" in ep.keys() else None
+    if status in ("processing", "optimizing"):
+        conn.close()
+        flash("ตอนนี้กำลังประมวลผลอยู่ กรุณารอสักครู่", "info")
+        return redirect(url_for("admin_episodes", series_id=series_id))
+
+    file_path = ep["file_path"] if "file_path" in ep.keys() else None
+    if not file_path:
+        conn.close()
+        flash("ตอนนี้ไม่มีไฟล์บนเซิร์ฟเวอร์ (อาจเป็น Direct URL) จึงยัง optimize ไม่ได้", "error")
+        return redirect(url_for("admin_episodes", series_id=series_id))
+
+    abs_path = resolve_video_path(file_path)
+    if not abs_path or not os.path.exists(abs_path):
+        conn.close()
+        flash("ไม่พบไฟล์วิดีโอบนเซิร์ฟเวอร์", "error")
+        return redirect(url_for("admin_episodes", series_id=series_id))
+
+    # Mark optimizing to prevent resubmission + streaming while rewriting the file.
+    conn.execute("UPDATE episodes SET status = 'optimizing' WHERE id = ?", (episode_id,))
+    conn.commit()
+    conn.close()
+
+    source_type = ep["source_type"] if "source_type" in ep.keys() else "upload"
+    t = threading.Thread(
+        target=_background_optimize_episode_file,
+        args=(episode_id, abs_path, source_type),
+        daemon=True,
+    )
+    t.start()
+    flash("เริ่มปรับไฟล์ให้เล่นลื่นขึ้นแล้ว (Faststart/iOS) — ทำงานในพื้นหลัง", "info")
     return redirect(url_for("admin_episodes", series_id=series_id))
 
 @app.route("/admin/episodes/<int:episode_id>/retry_download", methods=["POST"])

@@ -155,6 +155,8 @@
                     ⏳ กำลังประมวลผลวิดีโอ…
                   {% endif %}
                 </span>
+              {% elif ep_status == 'optimizing' %}
+                <span class="ep-badge ep-badge--processing">⏳ กำลังปรับไฟล์ให้เล่นลื่นขึ้น (Faststart/iOS)…</span>
               {% elif ep_status == 'error' %}
                 <span class="ep-badge ep-badge--error">❌ โหลดวิดีโอล้มเหลว</span>
               {% endif %}
@@ -187,6 +189,15 @@
               </form>
             {% endif %}
 
+            {% set compat = compat_map.get(ep['id']) if compat_map is defined else None %}
+            {% if compat and compat.get('faststart') is sameas false %}
+              <form method="post" action="{{ url_for('admin_optimize_episode_streaming', episode_id=ep['id']) }}"
+                    onsubmit="return confirm('ต้องการปรับไฟล์ให้ Faststart (ช่วยให้ iOS/มือถือเลื่อนเวลาได้ลื่นขึ้น) ?');"
+                    style="display:contents;">
+                <button type="submit" class="ep-btn" style="border-color:#3a6b3a;color:#7ec97e;">⚡ ทำ Faststart</button>
+              </form>
+            {% endif %}
+
             <form method="post" action="{{ url_for('admin_delete_episode', episode_id=ep['id']) }}"
                   onsubmit="return confirm('ยืนยันการลบตอน ?');"
                   style="display:contents;">
@@ -195,7 +206,6 @@
           </div>
 
           {# ── Compatibility box (server-verified when local file exists) ── #}
-          {% set compat = compat_map.get(ep['id']) if compat_map is defined else None %}
           {% if compat %}
             <div class="ep-compat-box">
               <div class="ep-compat-title">ความเข้ากันได้ (ตรวจสอบจากเซิร์ฟเวอร์)</div>
