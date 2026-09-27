@@ -1,150 +1,187 @@
-# MySeriesVideo / menuwed
+# NexusHub-Stream (MySeriesVideo / menuwed)
 
-โปรเจกต์นี้เป็นเว็บดูวิดีโอแบบ Flask พร้อมตัวจัดการติดตั้ง/อัปเดต/เว็บ/config ชื่อ `menuwed`
+เว็บดูวิดีโอ/ซีรีส์ด้วย **Flask** พร้อมตัวจัดการ CLI ชื่อ `menuwed` สำหรับติดตั้ง/อัปเดต/จัดการ config และการรันบนเครื่องหรือบนคลาวด์
 
-## สิ่งที่ปรับในรอบนี้
+> Repo นี้มี `start.sh` ที่รันได้ทั้งแบบ `gunicorn` และ fallback ไป `python app.py` และมี `nixpacks.toml` ที่ขอ `ffmpeg` สำหรับแพลตฟอร์มที่รองรับ Nixpacks (เช่น Railway)
 
-- รองรับอุปกรณ์หลายขนาดมากขึ้น ทั้งมือถือ แท็บเล็ต และเดสก์ท็อป
-- โหลดวิดีโอและเสียงได้ด้วย player ที่ responsive
-- ติดตั้งไลบรารีและ runtime อัตโนมัติผ่าน virtualenv
-- รองรับ Ubuntu / Debian / Windows ด้วยคำสั่งติดตั้งเดียวต่อระบบ
-- คำสั่ง `menuwed` ใช้งานได้ทันทีหลังติดตั้ง
-- เพิ่มเมนูจัดการเว็บ, อัปเดตระบบ, อัปเดตแบบเจาะจง, อัปเดตไลบรารี, และจัดการ config
-- เพิ่มโหมดไม่มีเมนูสำหรับ environment แบบ Render / cloud
-- ผูกโดเมนแล้วจะพยายามตั้งค่า nginx reverse proxy บน 80/443 ให้โดยอัตโนมัติเมื่อมีสิทธิ์ sudo
-- ถ้าออก Let's Encrypt ได้ จะเปิด auto renew และ renewal hooks ให้อัตโนมัติ
-- ป้องกันการติดตั้งซ้ำ ถ้ามีอยู่แล้วต้องถอนก่อน
-- เก็บค่าปรับแต่งหลักไว้ที่ `menuwed_config.json` แก้ไฟล์เดียวมีผล
+---
 
-## แก้ไฟล์ไหนได้บ้าง
+## TL;DR (รันบน Railway ให้ขึ้นเร็วที่สุด)
 
-จุดสำคัญอยู่ที่ไฟล์เหล่านี้:
+1. Railway → **New Project** → **Deploy from GitHub repo** → เลือก repo นี้
+2. ตั้ง **Start Command** เป็น:
+   ```bash
+   sh start.sh
+   ```
+3. ไปที่ **Variables** แล้วตั้งอย่างน้อย:
+   - `SECRET_KEY` = สุ่มยาวๆ (สำคัญมาก)
+   - `ADMIN_PASSWORD` = เปลี่ยนจากค่า default
+   - (แนะนำ) `ADMIN_USERNAME`
+4. ไปที่ **Networking / Domains** → สร้าง Public Domain
+5. เปิดเว็บแล้วทดสอบ:
+   - `/healthz` ต้องตอบ `{ "status": "ok" ... }`
 
-- `menuwed_config.json` — แก้ชื่อโปรเจกต์, path, port, repo, version fallback
-- `menuwed.py` — ตัวเมนูหลัก, install/update/web/config
-- `install.sh` — ติดตั้งบน Ubuntu / Debian
-- `install.ps1` — ติดตั้งบน Windows
-- `app.py` — เว็บหลัก
-- `templates/` + `static/style.css` — หน้าจอ responsive และ media player
-- `menuwed_config.json` — ไฟล์ config หลักของระบบ
+> ถ้าต้องการให้ฐานข้อมูล/ไฟล์ไม่หายเวลามี redeploy ให้เพิ่ม **Volume** แล้วตั้ง `DATA_DIR` (ดูหัวข้อ “Persistent Storage”)
 
-## วิธีติดตั้ง
+---
 
-### Ubuntu / Debian
+## โครงสร้างโปรเจกต์ (ไฟล์สำคัญ)
+
+- `app.py` — เว็บหลัก (Flask)
+- `start.sh` — สคริปต์สตาร์ท (พยายามใช้ gunicorn ก่อน แล้ว fallback)
+- `requirements.txt` — dependencies (Flask, gunicorn, yt-dlp ฯลฯ)
+- `nixpacks.toml` — ขอ `ffmpeg`
+- `templates/` และ `static/` — UI
+- `menuwed.py` — CLI สำหรับติดตั้ง/อัปเดต/จัดการเว็บ
+- `menuwed_config.json` — ค่า config/ค่าเริ่มต้น (เหมาะกับรันบนเครื่อง)
+
+---
+
+## รันในเครื่อง (Local)
+
+### Linux / macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Phechr-2025/RedHub-Stream/main/install.sh | bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# วิธีแนะนำ (เหมือน production มากกว่า)
+sh start.sh
 ```
+
+เปิดเว็บที่ `http://127.0.0.1:5000`
 
 ### Windows (PowerShell)
 
 ```powershell
-iwr https://raw.githubusercontent.com/Phechr-2025/RedHub-Stream/main/install.ps1 -UseBasicParsing | iex
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+python app.py
 ```
 
-## ใช้งาน
+---
 
-หลังติดตั้งแล้วพิมพ์:
+## Deploy บน Railway
+
+### 1) Deploy from GitHub
+
+- Railway → New Project → Deploy from GitHub repo → เลือก repo นี้
+
+### 2) Start Command
+
+ถ้า Railway ไม่ detect ให้ตั้งเอง:
 
 ```bash
-menuwed
+sh start.sh
 ```
 
-หรือบน Windows:
+### 3) Variables (Environment Variables)
 
-```powershell
-menuwed
+#### ✅ ต้องตั้งจริงๆ (แนะนำให้ตั้งทุกครั้งบน production)
+
+| ตัวแปร | จำเป็น | ตัวอย่าง | ใช้ทำอะไร |
+|---|---:|---|---|
+| `SECRET_KEY` | ต้องมี | `a-very-long-random-string` | ใช้เข้ารหัส session/cookie ของ Flask (ห้ามใช้ค่าเดิม/เดาง่าย) |
+| `ADMIN_PASSWORD` | ต้องมี (เพื่อความปลอดภัย) | `your-strong-password` | รหัสแอดมิน (ค่า default คือ `1234` ไม่ควรใช้) |
+| `ADMIN_USERNAME` | แนะนำ | `admin` | ยูสเซอร์แอดมิน (ค่า default คือ `admin`) |
+
+> หมายเหตุ: ถ้าไม่ตั้ง `ADMIN_*` ระบบจะ fallback ไปค่า default ได้ ทำให้ไม่ปลอดภัยเมื่อเปิด public
+
+#### 🗂️ Persistent Storage (แนะนำมาก)
+
+ถ้าคุณมีข้อมูล เช่น ฐานข้อมูล/ไฟล์วิดีโอ/ไฟล์ cookies และต้องการให้ **ไม่หาย** เมื่อ redeploy/restart:
+
+1) Railway → Service → **Volumes** → Add Volume (ตัวอย่าง mount path: `/data`)
+
+2) ตั้ง Variables:
+
+| ตัวแปร | ตัวอย่าง | ใช้ทำอะไร |
+|---|---|---|
+| `DATA_DIR` | `/data` | โฟลเดอร์เก็บ `videos.db`, โฟลเดอร์วิดีโอ, backups, cookies ฯลฯ |
+
+#### ⚙️ ปรับประสิทธิภาพ gunicorn (Optional)
+
+| ตัวแปร | default | ใช้ทำอะไร |
+|---|---:|---|
+| `WEB_CONCURRENCY` | `2` | จำนวน worker processes |
+| `GUNICORN_THREADS` | `2` | จำนวน threads ต่อ worker |
+| `GUNICORN_TIMEOUT` | `120` | timeout (วินาที) |
+
+> ถ้าใช้ SQLite แล้วเจอ error แนว `database is locked` ให้ลองตั้ง `WEB_CONCURRENCY=1`
+
+#### 🛡️ Cloudflare Turnstile (Optional)
+
+| ตัวแปร | ใช้ทำอะไร |
+|---|---|
+| `TURNSTILE_SITE_KEY` | คีย์สำหรับแสดง widget |
+| `TURNSTILE_SECRET_KEY` | คีย์สำหรับ verify หลังบ้าน |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | อนุญาต hostname (คั่นด้วย comma) |
+| `TURNSTILE_REQUIRED` | `true/false` ถ้าตั้ง `true` แต่ไม่ใส่คีย์ครบ แอปจะไม่ยอมเริ่ม |
+
+#### ✉️ อีเมล OTP ผ่าน Brevo (Optional)
+
+| ตัวแปร | ใช้ทำอะไร |
+|---|---|
+| `BREVO_API_KEY` | API key ของ Brevo |
+| `BREVO_SENDER_EMAIL` | อีเมลผู้ส่ง |
+| `BREVO_SENDER_NAME` | ชื่อผู้ส่ง |
+
+### 4) Domains
+
+ไปที่ Railway → **Networking / Domains** → สร้าง Public Domain แล้วเปิด URL นั้นได้เลย
+
+---
+
+## Deploy บน Render (มีตัวอย่างอยู่แล้ว)
+
+ดู `render.yaml` (แนวทางเหมือนกัน: build ติดตั้ง requirements แล้ว start ด้วย `sh start.sh`)
+
+---
+
+## Health check
+
+มี endpoint สำหรับเช็คสถานะ:
+
+- `GET /healthz`
+
+ควรตอบประมาณนี้:
+
+```json
+{"status":"ok","project":"...","version":"..."}
 ```
 
-## เมนูหลัก
+---
 
-1. ถอนการติดตั้ง  
-2. อัปเดตระบบ  
-3. อัปเดตแบบเจาะจง  
-4. อัปเดตไลบรารี  
-5. จัดการเว็บ  
-6. จัดการ config  
-0. ออกเมนู  
+## Troubleshooting
 
-### จัดการเว็บ
+### แอปไม่ยอมบูตทันที
+- เช็คว่าไม่ได้ตั้ง `TURNSTILE_REQUIRED=true` แต่ยังไม่ได้ใส่ `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`
 
-- ดู URL และข้อมูลการรัน
-- ผูกโดเมน
-- ดูสถานะเว็บ
-- รีสตาร์ทเว็บ
-- หยุดเว็บ
-- เริ่มเว็บ
-- ถ้ามี Let’s Encrypt จะเปิด auto renew ให้อัตโนมัติ
+### เปิดเว็บแล้ว 502/timeout
+- ดู logs ของ Railway ว่า service “Listening on 0.0.0.0:$PORT” หรือไม่
+- ตรวจว่า start command เป็น `sh start.sh`
 
-### จัดการ config
+### ข้อมูลหายหลัง deploy ใหม่
+- ต้องใช้ **Railway Volume** + ตั้ง `DATA_DIR` ไปยัง path ที่ mount volume
 
-- ดูค่าปัจจุบันทั้งหมด
-- สร้าง/ซ่อมไฟล์ config
-- แก้ค่าแบบถามทีละตัว
-- เปิดไฟล์ config ใน editor
+### `database is locked` (SQLite)
+- ตั้ง `WEB_CONCURRENCY=1` แล้ว redeploy
 
-## การอัปเดต
+---
 
-- อัปเดตระบบ: ดึง release ล่าสุด
-- อัปเดตแบบเจาะจง: ใส่ tag หรือ release URL ได้
-- อัปเดตไลบรารี: ติดตั้ง dependency ล่าสุดเข้า venv เดิม
+## Security checklist (ควรทำ)
 
-## หมายเหตุเรื่อง Turnstile
+- ตั้ง `SECRET_KEY` ใหม่เสมอ (สุ่มยาว ๆ)
+- เปลี่ยน `ADMIN_PASSWORD` จากค่า default
+- อย่าเปิด `FLASK_DEBUG=true` บน production
 
-ตอนนี้ค่าเริ่มต้นเป็นแบบ **ไม่บังคับ** เพื่อให้ local / Render / cloud รันได้ทันที  
-ถ้าต้องการบังคับใช้ ให้ตั้ง `TURNSTILE_REQUIRED=true` และใส่คีย์ให้ครบใน config
+---
 
-## หมายเหตุเรื่อง Render
+## หมายเหตุเกี่ยวกับสคริปต์ติดตั้ง (install.sh / install.ps1)
 
-ถ้ารันบน Render / environment คลาวด์ เมนู CLI จะไม่เด้งแบบ interactive ในโหมดไม่มี TTY และเว็บจะรันตรง ๆ แทน  
-ไฟล์ `start.sh` ยังรองรับกรณีที่ไม่มี `gunicorn` ด้วยการ fallback ไป `python3 app.py`
+สคริปต์ติดตั้งใน repo นี้ยังอ้างอิง repo ค่าเริ่มต้นใน config (`menuwed_config.json`) ซึ่งอาจชี้ไปที่ repo อื่นได้ ขึ้นกับค่าที่ตั้งไว้ใน config
 
-## หมายเหตุเรื่องโดเมน / Cloudflare
-
-เมื่อผูกโดเมนแล้ว ระบบจะพยายามตั้ง reverse proxy ด้วย nginx ไปยังพอร์ตภายในของแอป และจะเปิดพอร์ต 80/443 แบบ best-effort ถ้ามี sudo  
-รอบนี้บังคับออกใบรับรองจริงด้วย `certbot` / Let's Encrypt ก่อนเสมอ และเปิด auto renew ให้อัตโนมัติ หากออกใบรับรองไม่สำเร็จ ระบบจะหยุดที่ขั้นตอนผูกโดเมนพร้อมแจ้งสาเหตุชัดเจน เพื่อไม่ให้มีใบรับรองไม่ปลอดภัยปนอยู่
-
-ถ้า Cloudflare ยังขึ้น 522 หลังผูกโดเมน ให้ตรวจว่า
-
-- origin server ตอบได้จริงที่ `http://127.0.0.1:5000/healthz`
-- nginx ทำงานและมี site ของโปรเจกต์ถูก enable แล้ว
-- Lightsail / cloud firewall เปิด 80 และ 443
-- Cloudflare ชี้ A record ไปยัง public IP ที่ถูกต้อง
-
-## ไฟล์ config กลาง
-
-แก้ที่ `menuwed_config.json` ไฟล์เดียวได้ เช่น:
-
-- `project_name`
-- `install_path_unix` / `install_path_windows`
-- `data_dir_unix` / `data_dir_windows`
-- `web_port`
-- `github_repo`
-- `version` fallback
-
-ถ้าต้องการเปลี่ยนชื่อสคริปต์หรือ path ให้แก้ไฟล์นี้เป็นหลัก
-
-## หมายเหตุการแก้ล่าสุด
-
-- เพิ่มการ import `re` ใน `menuwed.py` เพื่อป้องกัน `NameError: re is not defined`
-- ตอนผูกโดเมนจะพยายามเริ่มเว็บต้นทางก่อนตั้ง reverse proxy เพื่อลดโอกาสเกิด `502 Bad Gateway`
-- ปรับหน้าตาอีเมล OTP (ที่ส่งผ่าน Brevo) ให้เป็นการ์ดสไตล์แบรนด์ อ่านง่ายขึ้น
-- แก้รหัส OTP ในอีเมลที่เคยขึ้นบรรทัดใหม่บนจอมือถือ และเคยแยกคนละบรรทัดเมื่อคัดลอก
-  ตอนนี้เป็นข้อความตัวเลขติดกันตัวเดียว คัดลอกแล้วได้ครบ 6 หลักในบรรทัดเดียว
-- แก้ตัวนับถอยหลัง "ส่ง OTP อีกครั้ง" ที่เคยรีเซ็ตเป็นค่าคูลดาวน์เต็มจำนวนทุกครั้งที่โหลดหน้าใหม่
-  ตอนนี้คำนวณจากเวลาที่ส่งจริง
-- เพิ่มปุ่ม "ยกเลิกแล้วเริ่มใหม่" ในหน้ายืนยัน OTP ทั้ง 3 จุด (สมัครสมาชิก / กู้บัญชี / เปลี่ยนอีเมล)
-  เพื่อให้แก้อีเมลที่กรอกผิดได้โดยไม่ต้องรอ OTP หมดอายุ
-- แก้บั๊กสำคัญ: ฟอร์มยืนยัน OTP ตอนสมัครสมาชิกไม่มี `action` ทำให้ข้อมูลที่กรอกไปโพสต์กลับไปที่
-  `/register` แทน `/register/verify` ผลคือกรอก OTP ถูกแล้วกดยืนยันแต่หน้าเว็บไม่ไปไหน
-  ตอนนี้ฟอร์มโพสต์ไปยัง route ยืนยันที่ถูกต้องตาม flow แล้ว
-- เอาลิงก์ "ฉันลืมรหัสผ่าน" ออกจากเมนูขีดสามขีด (ลิงก์ในหน้าเข้าสู่ระบบยังอยู่เหมือนเดิม)
-- แก้ปัญหาค้างหน้ายืนยัน OTP: ถ้าอยู่กลางขั้นตอนสมัคร/กู้บัญชี/เปลี่ยนอีเมลแล้วออกไปหน้าอื่น
-  (เช่น กดเมนูเข้าสู่ระบบ) ระบบจะยกเลิกรายการนั้นทันที กลับมาที่ flow เดิมจะขึ้นฟอร์มกรอกข้อมูลใหม่
-  ไม่ค้างที่หน้า OTP อีกต่อไป
-
-## หมายเหตุเรื่อง SSL และ auto renew
-
-- ถ้าออก Let’s Encrypt สำเร็จ ระบบจะพยายามเปิด `certbot.timer` และสร้าง renewal hooks ให้อัตโนมัติ
-- ถ้าเครื่องไม่มี systemd timer จะใช้ cron fallback แทน
-- ถ้าใช้ Cloudflare แบบ Proxy อยู่ ให้แน่ใจว่า HTTP-01 challenge เข้าถึง origin ได้จริง ไม่เช่นนั้น cert renewal อาจล้มเหลว
+ถ้าคุณตั้งใจให้สคริปต์ติดตั้งชี้มาที่ repo นี้เสมอ ให้แก้ค่า `github_repo` ใน `menuwed_config.json` ให้เป็น `Phechr-2025/NexusHub-Stream`
