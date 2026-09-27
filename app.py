@@ -548,7 +548,8 @@ def inject_globals():
         "APP_VERSION": APP_VERSION,
         "PUBLIC_BASE_URL": PUBLIC_BASE_URL,
         "CURRENT_YEAR": datetime.utcnow().year,
-        "ACCOUNT_RECOVERY_ENABLED": get_setting("account_recovery_enabled", "true").strip().lower() in {"1", "true", "yes", "on"},
+        # ปิดค่าเริ่มต้นเพื่อให้ระบบ OTP ไม่ถูกเปิดใช้โดยไม่ตั้งใจ (เช่น ยังไม่ได้ตั้งค่าอีเมล)
+        "ACCOUNT_RECOVERY_ENABLED": get_setting("account_recovery_enabled", "false").strip().lower() in {"1", "true", "yes", "on"},
     }
 
 
@@ -1829,7 +1830,8 @@ def user_register():
         return redirect(url_for("my_page"))
 
     form_error = None
-    force_email = get_setting("force_email", "true").strip().lower() in {"1", "true", "yes", "on"}
+    # ปิด OTP เป็นค่าเริ่มต้น (ผู้สมัครสามารถเว้นอีเมล์ได้ และสมัครสำเร็จทันที)
+    force_email = get_setting("force_email", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     # ถ้ามีรายการสมัครที่ค้างรอ OTP อยู่แต่ผู้ใช้กลับมาที่หน้าฟอร์มนี้เอง (เช่น กดปุ่มย้อนกลับ
     # ของเบราว์เซอร์จากหน้ายืนยัน OTP) ให้ยกเลิกรายการเดิมทิ้งไปเงียบ ๆ แล้วโชว์ฟอร์มเปล่าให้กรอกใหม่
@@ -2088,7 +2090,7 @@ def user_login():
 
 @app.route("/recover", methods=["GET", "POST"])
 def recover_account():
-    enabled = get_setting("account_recovery_enabled", "true").strip().lower() in {"1", "true", "yes", "on"}
+    enabled = get_setting("account_recovery_enabled", "false").strip().lower() in {"1", "true", "yes", "on"}
     if not enabled:
         flash("ระบบกู้บัญชีถูกปิดใช้งานชั่วคราว", "error")
         return redirect(url_for("user_login"))
@@ -2142,7 +2144,7 @@ def recover_account():
 
 @app.route("/recover/otp", methods=["GET", "POST"])
 def recover_otp():
-    enabled = get_setting("account_recovery_enabled", "true").strip().lower() in {"1", "true", "yes", "on"}
+    enabled = get_setting("account_recovery_enabled", "false").strip().lower() in {"1", "true", "yes", "on"}
     if not enabled:
         return redirect(url_for("user_login"))
     conn = get_db_connection()
@@ -2301,7 +2303,8 @@ def user_account():
     return render_template(
         "user_account.html",
         user=user,
-        email_service_enabled=get_setting("email_change_enabled", "true").strip().lower() in {"1", "true", "yes", "on"},
+        # ปิดเป็นค่าเริ่มต้นเพราะการเปลี่ยนอีเมล์ต้องใช้ OTP
+        email_service_enabled=get_setting("email_change_enabled", "false").strip().lower() in {"1", "true", "yes", "on"},
     )
 
 
@@ -2313,7 +2316,7 @@ def user_email():
         return redirect(url_for("user_login"))
 
     has_email = bool((user["email"] or "").strip())
-    email_change_enabled = get_setting("email_change_enabled", "true").strip().lower() in {"1", "true", "yes", "on"}
+    email_change_enabled = get_setting("email_change_enabled", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     # ถ้ามีรายการเปลี่ยน/เพิ่มอีเมลค้างรอ OTP อยู่แต่ผู้ใช้กลับมาที่หน้านี้เอง (เช่น กดปุ่มย้อนกลับ
     # จากหน้ายืนยัน OTP) ให้ยกเลิกรายการเดิมทิ้งไปเงียบ ๆ แล้วโชว์ฟอร์มเปล่าให้กรอกใหม่
@@ -2810,12 +2813,13 @@ def admin_settings():
         "user_timeout_unit": get_setting("user_timeout_unit", "days"),
         "admin_timeout_number": get_setting("admin_timeout_number", "8"),
         "admin_timeout_unit": get_setting("admin_timeout_unit", "hours"),
-        "force_email": get_setting("force_email", "true").strip().lower() in {"1", "true", "yes", "on"},
+        # OTP/อีเมล์: ปิดเป็นค่าเริ่มต้น
+        "force_email": get_setting("force_email", "false").strip().lower() in {"1", "true", "yes", "on"},
         "otp_resend_number": get_setting("otp_resend_number", "1"),
         "otp_resend_unit": get_setting("otp_resend_unit", "minutes"),
-        "account_recovery_enabled": get_setting("account_recovery_enabled", "true").strip().lower() in {"1", "true", "yes", "on"},
+        "account_recovery_enabled": get_setting("account_recovery_enabled", "false").strip().lower() in {"1", "true", "yes", "on"},
         "email_accounts_limit": get_setting("email_accounts_limit", "1"),
-        "email_change_enabled": get_setting("email_change_enabled", "true").strip().lower() in {"1", "true", "yes", "on"},
+        "email_change_enabled": get_setting("email_change_enabled", "false").strip().lower() in {"1", "true", "yes", "on"},
         "yt_download_mode": get_setting("yt_download_mode", "none"),
         "yt_cookies_source": get_setting("yt_cookies_source", "env"),
         "yt_cookies_text": get_setting("yt_cookies_text", ""),

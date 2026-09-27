@@ -17,6 +17,7 @@
    - `SECRET_KEY` = สุ่มยาวๆ (สำคัญมาก)
    - `ADMIN_PASSWORD` = เปลี่ยนจากค่า default
    - (แนะนำ) `ADMIN_USERNAME`
+   - (ถ้าจะใช้ OTP/กู้บัญชี/เปลี่ยนอีเมล์) ตั้งค่า Brevo แล้วค่อยไปเปิดสวิตช์ในหน้าแอดมิน `/admin/settings`
 4. ไปที่ **Networking / Domains** → สร้าง Public Domain
 5. เปิดเว็บแล้วทดสอบ:
    - `/healthz` ต้องตอบ `{ "status": "ok" ... }`
@@ -128,6 +129,14 @@ sh start.sh
 | `BREVO_API_KEY` | API key ของ Brevo |
 | `BREVO_SENDER_EMAIL` | อีเมลผู้ส่ง |
 | `BREVO_SENDER_NAME` | ชื่อผู้ส่ง |
+
+> หมายเหตุ: **ระบบ OTP ถูกปิดเป็นค่าเริ่มต้น** เพื่อไม่ให้ deploy ใหม่แล้วเจอปัญหา “ส่ง OTP ไม่ได้” ทันที  
+> หากต้องการเปิดใช้ ให้ทำ 2 ขั้นตอนนี้:
+> 1) ตั้งค่า Brevo variables ให้ครบ (ตารางด้านบน)  
+> 2) ล็อกอินแอดมิน → ไปที่ `/admin/settings` → เปิดสวิตช์ที่ต้องการ เช่น
+>    - “บังคับผู้สมัครต้องใส่อีเมล์และยืนยัน OTP” (`force_email`)
+>    - “ฉันลืมรหัสผ่าน” (`account_recovery_enabled`)
+>    - “เปลี่ยนอีเมล์” (`email_change_enabled`)
 
 ### 4) Domains
 
