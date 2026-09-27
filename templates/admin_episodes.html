@@ -194,6 +194,50 @@
             </form>
           </div>
 
+          {# ── Compatibility box (server-verified when local file exists) ── #}
+          {% set compat = compat_map.get(ep['id']) if compat_map is defined else None %}
+          {% if compat %}
+            <div class="ep-compat-box">
+              <div class="ep-compat-title">ความเข้ากันได้ (ตรวจสอบจากเซิร์ฟเวอร์)</div>
+              <div class="ep-compat-summary">{{ compat['summary'] }}</div>
+
+              {% if compat['verified'] %}
+                <div class="ep-compat-chips">
+                  {% set ok = compat['ios_ok'] %}
+                  <span class="compat-chip {% if ok %}ok{% elif ok is none %}na{% else %}bad{% endif %}">iOS</span>
+
+                  {% set ok = compat['android_ok'] %}
+                  <span class="compat-chip {% if ok %}ok{% elif ok is none %}na{% else %}bad{% endif %}">Android</span>
+
+                  {% set ok = compat['windows_ok'] %}
+                  <span class="compat-chip {% if ok %}ok{% elif ok is none %}na{% else %}bad{% endif %}">Windows</span>
+
+                  {% set ok = compat['macos_ok'] %}
+                  <span class="compat-chip {% if ok %}ok{% elif ok is none %}na{% else %}bad{% endif %}">macOS</span>
+
+                  {% set ok = compat['linux_ok'] %}
+                  <span class="compat-chip {% if ok %}ok{% elif ok is none %}na{% else %}bad{% endif %}">Linux</span>
+                </div>
+
+                <div class="ep-compat-notes">
+                  Faststart:
+                  {% if compat['faststart'] is sameas true %}
+                    <b style="color:#7ec97e;">OK</b>
+                  {% elif compat['faststart'] is sameas false %}
+                    <b style="color:#ff9a9a;">ไม่ใช่</b>
+                  {% else %}
+                    <b style="color:#b6bccd;">ไม่ทราบ</b>
+                  {% endif %}
+                  <span style="color:#7983a6;">(ช่วยให้ iOS/มือถือเลื่อนเวลาได้ลื่นขึ้น)</span>
+                </div>
+              {% else %}
+                <div class="ep-compat-notes">
+                  ยังตรวจสอบรายละเอียดไม่ได้ (ไม่มี ffprobe หรือเป็น Direct URL)
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
+
         </div>
       {% endfor %}
     </div>
@@ -201,6 +245,62 @@
     <div class="ep-empty">ยังไม่มีตอนในเรื่องนี้</div>
   {% endif %}
 </div>
+
+<style>
+  .ep-compat-box{
+    margin-top: 0.85rem;
+    padding: 0.9rem 1rem;
+    border-radius: 10px;
+    background: #0e1320;
+    border: 1px solid #232a40;
+  }
+  .ep-compat-title{
+    font-weight: 700;
+    color: #c8d3f0;
+    margin-bottom: 0.35rem;
+    font-size: 0.95rem;
+  }
+  .ep-compat-summary{
+    color:#aeb6d1;
+    font-size: 0.86rem;
+    margin-bottom: 0.65rem;
+    word-break: break-word;
+  }
+  .ep-compat-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.5rem;
+    margin-bottom: 0.55rem;
+  }
+  .compat-chip{
+    border:1px solid #2d3550;
+    background:#12172a;
+    color:#cbd3ef;
+    padding:0.25rem 0.55rem;
+    border-radius:999px;
+    font-size:0.82rem;
+    line-height:1.2;
+  }
+  .compat-chip.ok{
+    border-color:#3a6b3a;
+    color:#7ec97e;
+    background:#0f1a12;
+  }
+  .compat-chip.bad{
+    border-color:#7a2a2a;
+    color:#ff9a9a;
+    background:#1c0f10;
+  }
+  .compat-chip.na{
+    border-color:#3a4054;
+    color:#b6bccd;
+    background:#0f1320;
+  }
+  .ep-compat-notes{
+    color:#a7afc9;
+    font-size:0.84rem;
+  }
+</style>
 
 <script>
   const radios = document.querySelectorAll('input[name="mode"]');

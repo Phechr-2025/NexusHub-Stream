@@ -392,6 +392,111 @@ def ensure_ios_compatible_mp4(input_path: str) -> str:
         pass
     return input_path
 
+
+MEDIA_COMPAT_CACHE: dict[tuple[str, int, int], dict] = {}
+MEDIA_COMPAT_CACHE_MAX = 200
+
+
+def mp4_faststart_like(path: str, max_bytes: int = 8 * 1024 * 1024) -> bool | None:
+    """
+    Best-effort check for MP4 "faststart": moov atom appears before mdat atom.
+    Returns True/False when detectable, or None when unknown.
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read(max_bytes)
+    except Exception:
+        return None
+    moov = data.find(b"moov")
+    mdat = data.find(b"mdat")
+    if moov == -1 or mdat == -1:
+        return None
+    return moov < mdat
+
+
+def compatibility_report_for_local_file(path: str) -> dict:
+    """
+    Server-side verification report. This is NOT a guarantee for every distro/browser,
+    but it is a strong indicator based on container+codecs and faststart hint.
+    """
+    try:
+        st = os.stat(path)
+        key = (os.path.abspath(path), int(st.st_mtime), int(st.st_size))
+    except Exception:
+        key = (os.path.abspath(path), 0, 0)
+
+    cached = MEDIA_COMPAT_CACHE.get(key)
+    if cached:
+        return cached
+
+    info = ffprobe_info(path) or {}
+    streams = info.get("streams") or []
+    fmt = (info.get("format") or {}).get("format_name") or ""
+    fmt = str(fmt).split(",")[0].strip().lower()
+
+    vcodec = None
+    acodec = None
+    width = None
+    height = None
+    duration = None
+
+    for s in streams:
+        if not isinstance(s, dict):
+            continue
+        if s.get("codec_type") == "video" and vcodec is None:
+            vcodec = (s.get("codec_name") or "").lower() or None
+            width = s.get("width")
+            height = s.get("height")
+        if s.get("codec_type") == "audio" and acodec is None:
+            acodec = (s.get("codec_name") or "").lower() or None
+
+    try:
+        duration = float((info.get("format") or {}).get("duration") or 0) or None
+    except Exception:
+        duration = None
+
+    faststart = mp4_faststart_like(path)
+
+    is_mp4ish = fmt in {"mov", "mp4", "m4a", "3gp", "3g2", "mj2"} or "mp4" in fmt or "mov" in fmt
+    codec_universal = bool(is_mp4ish and (vcodec in (None, "h264")) and (acodec in (None, "aac")))
+    # iOS Safari is the strictest for typical web playback: MP4(H264/AAC) + faststart recommended.
+    ios_ok = bool(codec_universal and (faststart is not False))
+
+    summary_parts = []
+    summary_parts.append(f"container={fmt or '-'}")
+    summary_parts.append(f"video={vcodec or '-'}")
+    summary_parts.append(f"audio={acodec or '-'}")
+    if width and height:
+        summary_parts.append(f"{width}x{height}")
+    if duration:
+        summary_parts.append(f"{int(duration)}s")
+
+    report = {
+        "verified": bool(info),
+        "path": path,
+        "container": fmt or "",
+        "video_codec": vcodec or "",
+        "audio_codec": acodec or "",
+        "faststart": faststart,  # True/False/None
+        "universal_ok": codec_universal,
+        "ios_ok": ios_ok,
+        # For our UI we treat these as "likely ok" when universal_ok is true.
+        "android_ok": codec_universal,
+        "windows_ok": codec_universal,
+        "macos_ok": codec_universal,
+        "linux_ok": codec_universal,
+        "summary": ", ".join(summary_parts),
+    }
+
+    # cache (bounded)
+    if len(MEDIA_COMPAT_CACHE) >= MEDIA_COMPAT_CACHE_MAX:
+        try:
+            MEDIA_COMPAT_CACHE.pop(next(iter(MEDIA_COMPAT_CACHE)))
+        except Exception:
+            MEDIA_COMPAT_CACHE.clear()
+    MEDIA_COMPAT_CACHE[key] = report
+    return report
+
 def resolve_video_path(file_path: str | None) -> str | None:
     if not file_path:
         return None
@@ -3481,8 +3586,55 @@ def admin_episodes(series_id):
     ).fetchall()
     conn.close()
 
+    compat_map: dict[int, dict] = {}
+    for ep in episodes:
+        try:
+            ep_id = int(ep["id"])
+        except Exception:
+            continue
+
+        try:
+            ep_status = ep["status"] if "status" in ep.keys() else None
+        except Exception:
+            ep_status = None
+        if ep_status in ("processing", "error"):
+            continue
+
+        file_path = None
+        try:
+            file_path = ep["file_path"] if "file_path" in ep.keys() else None
+        except Exception:
+            file_path = None
+
+        if file_path:
+            abs_path = resolve_video_path(file_path)
+            if abs_path and os.path.exists(abs_path):
+                compat_map[ep_id] = compatibility_report_for_local_file(abs_path)
+            continue
+
+        # Direct URL: can't verify codecs without downloading.
+        try:
+            source_type = ep["source_type"] if "source_type" in ep.keys() else None
+            video_url = ep["video_url"] if "video_url" in ep.keys() else None
+        except Exception:
+            source_type = None
+            video_url = None
+
+        if source_type == "direct" and video_url:
+            compat_map[ep_id] = {
+                "verified": False,
+                "universal_ok": None,
+                "ios_ok": None,
+                "android_ok": None,
+                "windows_ok": None,
+                "macos_ok": None,
+                "linux_ok": None,
+                "faststart": None,
+                "summary": "Direct URL (ยังตรวจ codec/container ไม่ได้ จนกว่าจะนำเข้าเป็นไฟล์)",
+            }
+
     return render_template(
-        "admin_episodes.html", series=series, episodes=episodes
+        "admin_episodes.html", series=series, episodes=episodes, compat_map=compat_map
     )
 
 
