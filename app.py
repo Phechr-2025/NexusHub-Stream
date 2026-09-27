@@ -315,6 +315,7 @@ def ensure_ios_compatible_mp4(input_path: str) -> str:
     base, ext = os.path.splitext(input_path)
     output_path = input_path if ext.lower() == ".mp4" else base + ".mp4"
     tmp_path = output_path + ".tmp"
+    remux_tmp_path = output_path + ".faststart.tmp"
 
     def _run(cmd: list[str]) -> bool:
         try:
@@ -332,12 +333,24 @@ def ensure_ios_compatible_mp4(input_path: str) -> str:
     # If ffprobe is available, only trust the copy-remux as "done" when the codecs are iOS-friendly.
     # If ffprobe is NOT available, we still do a copy-remux (better streaming) and stop there.
     if ext.lower() == ".mp4" and (not ffprobe_available() or is_ios_playable_mp4(input_path)):
+        # If it's already faststart, keep as-is (avoid rewriting huge files).
+        if mp4_faststart_like(input_path) is True:
+            return output_path
+
         ok = _run(["ffmpeg", "-y", "-i", input_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", tmp_path])
         if ok and os.path.exists(tmp_path):
             try:
                 os.replace(tmp_path, output_path)
             except Exception:
                 pass
+            # Double-check and enforce faststart if needed.
+            if mp4_faststart_like(output_path) is False:
+                ok2 = _run(["ffmpeg", "-y", "-i", output_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", remux_tmp_path])
+                if ok2 and os.path.exists(remux_tmp_path):
+                    try:
+                        os.replace(remux_tmp_path, output_path)
+                    except Exception:
+                        pass
             return output_path
 
     # 2) Otherwise -> transcode to H.264/AAC MP4.
@@ -382,12 +395,26 @@ def ensure_ios_compatible_mp4(input_path: str) -> str:
                 os.remove(input_path)
             except Exception:
                 pass
+
+        # Enforce faststart for smoother iOS/mobile seeking when the parser can detect it's missing.
+        if mp4_faststart_like(output_path) is False:
+            ok2 = _run(["ffmpeg", "-y", "-i", output_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", remux_tmp_path])
+            if ok2 and os.path.exists(remux_tmp_path):
+                try:
+                    os.replace(remux_tmp_path, output_path)
+                except Exception:
+                    pass
         return output_path
 
     # Conversion failed; keep original.
     try:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+    except Exception:
+        pass
+    try:
+        if os.path.exists(remux_tmp_path):
+            os.remove(remux_tmp_path)
     except Exception:
         pass
     return input_path
@@ -397,21 +424,84 @@ MEDIA_COMPAT_CACHE: dict[tuple[str, int, int], dict] = {}
 MEDIA_COMPAT_CACHE_MAX = 200
 
 
-def mp4_faststart_like(path: str, max_bytes: int = 8 * 1024 * 1024) -> bool | None:
+def mp4_faststart_like(path: str) -> bool | None:
     """
-    Best-effort check for MP4 "faststart": moov atom appears before mdat atom.
-    Returns True/False when detectable, or None when unknown.
+    Detect MP4/MOV "faststart" by parsing top-level atoms (boxes).
+
+    Returns:
+      - True  when moov appears before mdat
+      - False when mdat appears before moov
+      - None  when undetectable (non-mp4, fragmented, corrupted, or missing atoms)
     """
     try:
-        with open(path, "rb") as f:
-            data = f.read(max_bytes)
+        size = os.path.getsize(path)
+        if size < 16:
+            return None
     except Exception:
         return None
-    moov = data.find(b"moov")
-    mdat = data.find(b"mdat")
-    if moov == -1 or mdat == -1:
+
+    def _read_u32(f):
+        b = f.read(4)
+        if len(b) != 4:
+            return None
+        return int.from_bytes(b, "big", signed=False)
+
+    def _read_u64(f):
+        b = f.read(8)
+        if len(b) != 8:
+            return None
+        return int.from_bytes(b, "big", signed=False)
+
+    moov_pos = None
+    mdat_pos = None
+    max_boxes = 10000
+
+    try:
+        with open(path, "rb") as f:
+            for _ in range(max_boxes):
+                start = f.tell()
+                if start >= size:
+                    break
+
+                box_size = _read_u32(f)
+                box_type = f.read(4)
+                if box_size is None or len(box_type) != 4:
+                    break
+
+                typ = box_type.decode("ascii", errors="ignore")
+
+                header = 8
+                if box_size == 1:
+                    ext = _read_u64(f)
+                    if ext is None:
+                        break
+                    box_size = ext
+                    header = 16
+                elif box_size == 0:
+                    # box extends to EOF
+                    box_size = size - start
+
+                if box_size < header:
+                    break
+
+                if typ == "moov" and moov_pos is None:
+                    moov_pos = start
+                if typ == "mdat" and mdat_pos is None:
+                    mdat_pos = start
+
+                if moov_pos is not None and mdat_pos is not None:
+                    return moov_pos < mdat_pos
+
+                # Skip to next box
+                f.seek(start + box_size)
+    except Exception:
         return None
-    return moov < mdat
+
+    if moov_pos is not None and mdat_pos is None:
+        return None
+    if mdat_pos is not None and moov_pos is None:
+        return None
+    return None
 
 
 def compatibility_report_for_local_file(path: str) -> dict:
