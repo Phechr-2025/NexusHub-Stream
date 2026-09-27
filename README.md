@@ -1,196 +1,159 @@
 # NexusHub-Stream (MySeriesVideo / menuwed)
 
-เว็บดูวิดีโอ/ซีรีส์ด้วย **Flask** พร้อมตัวจัดการ CLI ชื่อ `menuwed` สำหรับติดตั้ง/อัปเดต/จัดการ config และการรันบนเครื่องหรือบนคลาวด์
+เว็บดูวิดีโอ/ซีรีส์ด้วย **Flask** + ตัวช่วยจัดการบนเครื่อง/ VPS ชื่อ `menuwed`.
 
-> Repo นี้มี `start.sh` ที่รันได้ทั้งแบบ `gunicorn` และ fallback ไป `python app.py` และมี `nixpacks.toml` ที่ขอ `ffmpeg` สำหรับแพลตฟอร์มที่รองรับ Nixpacks (เช่น Railway)
-
----
-
-## TL;DR (รันบน Railway ให้ขึ้นเร็วที่สุด)
-
-1. Railway → **New Project** → **Deploy from GitHub repo** → เลือก repo นี้
-2. ตั้ง **Start Command** เป็น:
-   ```bash
-   sh start.sh
-   ```
-3. ไปที่ **Variables** แล้วตั้งอย่างน้อย:
-   - `SECRET_KEY` = สุ่มยาวๆ (สำคัญมาก)
-   - `ADMIN_PASSWORD` = เปลี่ยนจากค่า default
-   - (แนะนำ) `ADMIN_USERNAME`
-   - (ถ้าจะใช้ OTP/กู้บัญชี/เปลี่ยนอีเมล์) ตั้งค่า Brevo แล้วค่อยไปเปิดสวิตช์ในหน้าแอดมิน `/admin/settings`
-4. ไปที่ **Networking / Domains** → สร้าง Public Domain
-5. เปิดเว็บแล้วทดสอบ:
-   - `/healthz` ต้องตอบ `{ "status": "ok" ... }`
-
-> ถ้าต้องการให้ฐานข้อมูล/ไฟล์ไม่หายเวลามี redeploy ให้เพิ่ม **Volume** แล้วตั้ง `DATA_DIR` (ดูหัวข้อ “Persistent Storage”)
+- สตาร์ทโปรดักชันด้วย `sh start.sh` (พยายามใช้ `gunicorn` ก่อน และ fallback ไป `python app.py`)
+- มี `nixpacks.toml` ขอ `ffmpeg` (เหมาะกับ Railway)
 
 ---
 
-## โครงสร้างโปรเจกต์ (ไฟล์สำคัญ)
+## Deploy บน Railway (สั้น ๆ)
 
-- `app.py` — เว็บหลัก (Flask)
-- `start.sh` — สคริปต์สตาร์ท (พยายามใช้ gunicorn ก่อน แล้ว fallback)
-- `requirements.txt` — dependencies (Flask, gunicorn, yt-dlp ฯลฯ)
-- `nixpacks.toml` — ขอ `ffmpeg`
-- `templates/` และ `static/` — UI
-- `menuwed.py` — CLI สำหรับติดตั้ง/อัปเดต/จัดการเว็บ
-- `menuwed_config.json` — ค่า config/ค่าเริ่มต้น (เหมาะกับรันบนเครื่อง)
+1) Railway → **New Project** → **Deploy from GitHub repo** → เลือก repo นี้  
+2) ตั้ง **Start Command**:
+```bash
+sh start.sh
+```
+3) ตั้ง **Variables** ขั้นต่ำ:
+- `SECRET_KEY` = สุ่มยาว ๆ
+- `ADMIN_PASSWORD` = เปลี่ยนจากค่า default
+- (แนะนำ) `ADMIN_USERNAME`
+
+4) ไปที่ **Networking / Domains** → สร้าง Public Domain  
+5) ทดสอบ `GET /healthz`
+
+> ถ้าต้องการให้ข้อมูลไม่หาย ให้เพิ่ม **Volume** และตั้ง `DATA_DIR` (ดูหัวข้อ Persistent Storage)
 
 ---
 
-## รันในเครื่อง (Local)
+## รันบน VPS / เครื่องตัวเอง (Manual)
 
-### Linux / macOS
+### Requirements
+- Python 3
+- ffmpeg
 
+### Run
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# วิธีแนะนำ (เหมือน production มากกว่า)
 sh start.sh
-```
-
-เปิดเว็บที่ `http://127.0.0.1:5000`
-
-### Windows (PowerShell)
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-python app.py
 ```
 
 ---
 
-## Deploy บน Railway
+## ใช้งาน `menuwed` บน VPS (เมนู/คำสั่ง)
 
-### 1) Deploy from GitHub
+> ใช้ได้เมื่อคุณมีคำสั่ง `menuwed` แล้ว (เช่น ติดตั้งด้วยสคริปต์/วิธีของคุณ) หรือรันตรงด้วย `python3 menuwed.py` ในโฟลเดอร์โปรเจกต์
 
-- Railway → New Project → Deploy from GitHub repo → เลือก repo นี้
-
-### 2) Start Command
-
-ถ้า Railway ไม่ detect ให้ตั้งเอง:
-
+### เมนูหลัก
+รัน:
 ```bash
-sh start.sh
+menuwed
+```
+เมนูหลัก:
+- 1) ถอนการติดตั้ง
+- 2) อัปเดตระบบ
+- 3) อัปเดตแบบเจาะจง
+- 4) อัปเดตไลบารี่
+- 5) จัดการเว็บ
+- 6) จัดการ config
+
+### เมนู “จัดการเว็บ”
+- ดู URL และอื่นๆ
+- ผูกโดเมน (พยายามตั้ง nginx reverse proxy + Let's Encrypt แบบ best-effort)
+- ดูสถานะเว็บ / รีสตาร์ท / หยุด / เริ่ม
+
+### เมนู “จัดการ config”
+- ดูค่าปัจจุบันทั้งหมด
+- สร้าง/ซ่อม config
+- แก้ค่าแบบถามทีละตัว
+- เปิดไฟล์ config ใน editor
+
+### คำสั่งแบบไม่ต้องเข้าหน้าเมนู
+```bash
+menuwed web-start
+menuwed web-stop
+menuwed web-status
+menuwed web-info
+menuwed web-restart
 ```
 
-### 3) Variables (Environment Variables)
+---
 
-#### ✅ ต้องตั้งจริงๆ (แนะนำให้ตั้งทุกครั้งบน production)
+## Admin (ค่าเริ่มต้น)
 
-| ตัวแปร | จำเป็น | ตัวอย่าง | ใช้ทำอะไร |
-|---|---:|---|---|
-| `SECRET_KEY` | ต้องมี | `a-very-long-random-string` | ใช้เข้ารหัส session/cookie ของ Flask (ห้ามใช้ค่าเดิม/เดาง่าย) |
-| `ADMIN_PASSWORD` | ต้องมี (เพื่อความปลอดภัย) | `your-strong-password` | รหัสแอดมิน (ค่า default คือ `1234` ไม่ควรใช้) |
-| `ADMIN_USERNAME` | แนะนำ | `admin` | ยูสเซอร์แอดมิน (ค่า default คือ `admin`) |
+ค่าเริ่มต้นในระบบ:
+- `ADMIN_USERNAME=admin`
+- `ADMIN_PASSWORD=1234`
 
-> หมายเหตุ: ถ้าไม่ตั้ง `ADMIN_*` ระบบจะ fallback ไปค่า default ได้ ทำให้ไม่ปลอดภัยเมื่อเปิด public
+**แนะนำให้เปลี่ยนทันที** โดยตั้ง Environment Variables บน Railway/VPS.
 
-#### 🗂️ Persistent Storage (แนะนำมาก)
+---
 
-ถ้าคุณมีข้อมูล เช่น ฐานข้อมูล/ไฟล์วิดีโอ/ไฟล์ cookies และต้องการให้ **ไม่หาย** เมื่อ redeploy/restart:
+## Environment Variables
 
-1) Railway → Service → **Volumes** → Add Volume (ตัวอย่าง mount path: `/data`)
+### ต้องตั้ง (แนะนำบนโปรดักชัน)
+| ตัวแปร | ใช้ทำอะไร |
+|---|---|
+| `SECRET_KEY` | คีย์ลับสำหรับ session/cookie |
+| `ADMIN_USERNAME` | ชื่อแอดมิน (default: `admin`) |
+| `ADMIN_PASSWORD` | รหัสแอดมิน (default: `1234`) |
 
-2) ตั้ง Variables:
+### Persistent Storage (กันข้อมูลหาย)
+แอปใช้ SQLite + เก็บไฟล์ใน `DATA_DIR`.
 
-| ตัวแปร | ตัวอย่าง | ใช้ทำอะไร |
-|---|---|---|
-| `DATA_DIR` | `/data` | โฟลเดอร์เก็บ `videos.db`, โฟลเดอร์วิดีโอ, backups, cookies ฯลฯ |
+- บน Railway: เพิ่ม **Volume** แล้วตั้ง `DATA_DIR=/data` (หรือ path ที่คุณ mount)
+- บน VPS: ตั้ง `DATA_DIR` ไปยังโฟลเดอร์ถาวรที่คุณต้องการ
 
-#### ⚙️ ปรับประสิทธิภาพ gunicorn (Optional)
-
+### Gunicorn tuning (ไม่จำเป็น)
 | ตัวแปร | default | ใช้ทำอะไร |
 |---|---:|---|
-| `WEB_CONCURRENCY` | `2` | จำนวน worker processes |
-| `GUNICORN_THREADS` | `2` | จำนวน threads ต่อ worker |
-| `GUNICORN_TIMEOUT` | `120` | timeout (วินาที) |
+| `WEB_CONCURRENCY` | 2 | จำนวน workers |
+| `GUNICORN_THREADS` | 2 | จำนวน threads ต่อ worker |
+| `GUNICORN_TIMEOUT` | 120 | timeout (วินาที) |
 
-> ถ้าใช้ SQLite แล้วเจอ error แนว `database is locked` ให้ลองตั้ง `WEB_CONCURRENCY=1`
+> ถ้าใช้ SQLite แล้วเจอ `database is locked` ให้ลอง `WEB_CONCURRENCY=1`
 
-#### 🛡️ Cloudflare Turnstile (Optional)
-
+### Cloudflare Turnstile (ไม่จำเป็น)
 | ตัวแปร | ใช้ทำอะไร |
 |---|---|
-| `TURNSTILE_SITE_KEY` | คีย์สำหรับแสดง widget |
-| `TURNSTILE_SECRET_KEY` | คีย์สำหรับ verify หลังบ้าน |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | อนุญาต hostname (คั่นด้วย comma) |
-| `TURNSTILE_REQUIRED` | `true/false` ถ้าตั้ง `true` แต่ไม่ใส่คีย์ครบ แอปจะไม่ยอมเริ่ม |
+| `TURNSTILE_SITE_KEY` | แสดง widget |
+| `TURNSTILE_SECRET_KEY` | verify หลังบ้าน |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | จำกัด hostname (คั่นด้วย ,) |
+| `TURNSTILE_REQUIRED` | ถ้า `true` แต่ไม่มี key ครบ แอปจะไม่ยอมเริ่ม |
 
-#### ✉️ อีเมล OTP ผ่าน Brevo (Optional)
+### OTP / Email (Brevo) — ปิดเป็นค่าเริ่มต้น
+ระบบ OTP ถูกตั้งค่าเริ่มต้นให้ **ปิด** เพื่อให้ deploy ใหม่แล้วใช้งานได้ทันที แม้ยังไม่ได้ตั้งค่าอีเมล.
 
-| ตัวแปร | ใช้ทำอะไร |
-|---|---|
-| `BREVO_API_KEY` | API key ของ Brevo |
-| `BREVO_SENDER_EMAIL` | อีเมลผู้ส่ง |
-| `BREVO_SENDER_NAME` | ชื่อผู้ส่ง |
-
-> หมายเหตุ: **ระบบ OTP ถูกปิดเป็นค่าเริ่มต้น** เพื่อไม่ให้ deploy ใหม่แล้วเจอปัญหา “ส่ง OTP ไม่ได้” ทันที  
-> หากต้องการเปิดใช้ ให้ทำ 2 ขั้นตอนนี้:
-> 1) ตั้งค่า Brevo variables ให้ครบ (ตารางด้านบน)  
-> 2) ล็อกอินแอดมิน → ไปที่ `/admin/settings` → เปิดสวิตช์ที่ต้องการ เช่น
->    - “บังคับผู้สมัครต้องใส่อีเมล์และยืนยัน OTP” (`force_email`)
->    - “ฉันลืมรหัสผ่าน” (`account_recovery_enabled`)
->    - “เปลี่ยนอีเมล์” (`email_change_enabled`)
-
-### 4) Domains
-
-ไปที่ Railway → **Networking / Domains** → สร้าง Public Domain แล้วเปิด URL นั้นได้เลย
-
----
-
-## Deploy บน Render (มีตัวอย่างอยู่แล้ว)
-
-ดู `render.yaml` (แนวทางเหมือนกัน: build ติดตั้ง requirements แล้ว start ด้วย `sh start.sh`)
+ถ้าต้องการเปิด OTP:
+1) ตั้ง Brevo variables:
+   - `BREVO_API_KEY`
+   - `BREVO_SENDER_EMAIL`
+   - `BREVO_SENDER_NAME`
+2) ล็อกอินแอดมิน → ไปที่ `/admin/settings` → เปิดสวิตช์ที่ต้องการ:
+   - บังคับผู้สมัครต้องใส่อีเมล์และยืนยัน OTP (`force_email`)
+   - ฉันลืมรหัสผ่าน (`account_recovery_enabled`)
+   - เปลี่ยนอีเมล์ (`email_change_enabled`)
 
 ---
 
 ## Health check
 
-มี endpoint สำหรับเช็คสถานะ:
-
 - `GET /healthz`
 
-ควรตอบประมาณนี้:
+---
 
-```json
-{"status":"ok","project":"...","version":"..."}
-```
+## Troubleshooting (สั้น ๆ)
+
+- เปิดเว็บแล้ว 502/timeout → เช็ค logs ว่าฟังที่ `0.0.0.0:$PORT` และสตาร์ทด้วย `sh start.sh`
+- Turnstile เปิดแบบ required แล้วบูตไม่ได้ → ตรวจ `TURNSTILE_*`
+- ข้อมูลหายหลัง redeploy → ตั้ง `DATA_DIR` + ใช้ Volume (Railway)
 
 ---
 
-## Troubleshooting
+## หมายเหตุเรื่องสคริปต์ติดตั้ง (install.sh / install.ps1)
 
-### แอปไม่ยอมบูตทันที
-- เช็คว่าไม่ได้ตั้ง `TURNSTILE_REQUIRED=true` แต่ยังไม่ได้ใส่ `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`
-
-### เปิดเว็บแล้ว 502/timeout
-- ดู logs ของ Railway ว่า service “Listening on 0.0.0.0:$PORT” หรือไม่
-- ตรวจว่า start command เป็น `sh start.sh`
-
-### ข้อมูลหายหลัง deploy ใหม่
-- ต้องใช้ **Railway Volume** + ตั้ง `DATA_DIR` ไปยัง path ที่ mount volume
-
-### `database is locked` (SQLite)
-- ตั้ง `WEB_CONCURRENCY=1` แล้ว redeploy
-
----
-
-## Security checklist (ควรทำ)
-
-- ตั้ง `SECRET_KEY` ใหม่เสมอ (สุ่มยาว ๆ)
-- เปลี่ยน `ADMIN_PASSWORD` จากค่า default
-- อย่าเปิด `FLASK_DEBUG=true` บน production
-
----
-
-## หมายเหตุเกี่ยวกับสคริปต์ติดตั้ง (install.sh / install.ps1)
-
-สคริปต์ติดตั้งใน repo นี้ยังอ้างอิง repo ค่าเริ่มต้นใน config (`menuwed_config.json`) ซึ่งอาจชี้ไปที่ repo อื่นได้ ขึ้นกับค่าที่ตั้งไว้ใน config
-
-ถ้าคุณตั้งใจให้สคริปต์ติดตั้งชี้มาที่ repo นี้เสมอ ให้แก้ค่า `github_repo` ใน `menuwed_config.json` ให้เป็น `Phechr-2025/NexusHub-Stream`
+สคริปต์ติดตั้งอาจอ้างอิง `github_repo` ใน `menuwed_config.json`.
+ถ้าต้องการให้สคริปต์ติดตั้งชี้มาที่ repo นี้เสมอ ให้ตั้ง `github_repo` เป็น `Phechr-2025/NexusHub-Stream`.
