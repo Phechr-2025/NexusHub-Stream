@@ -65,7 +65,7 @@
         <input type="radio" name="mode" value="upload" />
         <span class="mode-opt-content">
           <span class="mode-opt-title">โหมด C — อัปโหลดไฟล์</span>
-          <span class="mode-opt-desc">อัปโหลด .mp4 จากเครื่อง</span>
+          <span class="mode-opt-desc">อัปโหลดไฟล์จากเครื่อง (ระบบแปลงให้ iOS ดูได้อัตโนมัติ)</span>
         </span>
       </label>
     </div>
@@ -102,8 +102,9 @@
     </div>
 
     <div class="mode-block" id="mode-upload" style="display:none;">
-      <label for="file">เลือกไฟล์วิดีโอ (.mp4) *</label>
-      <input type="file" id="file" name="file" accept="video/mp4" />
+      <label for="file">เลือกไฟล์วิดีโอ *</label>
+      <input type="file" id="file" name="file" accept="video/*" />
+      <p class="ep-hint">💡 แนะนำ MP4 (H.264/AAC) เพื่อแปลงเร็วที่สุด แต่ระบบจะพยายามแปลงให้เล่นบน iOS ได้</p>
     </div>
 
     <button type="submit" class="btn primary ep-submit-btn">💾 บันทึกตอนใหม่</button>
@@ -144,7 +145,15 @@
 
               {% if ep_status == 'processing' %}
                 <span class="ep-badge ep-badge--processing">
-                  ⏳ กำลังดาวน์โหลด{% if ep['source_type'] == 'youtube' %} จาก YouTube{% else %} จาก Drive{% endif %}…
+                  {% if ep['source_type'] == 'youtube' %}
+                    ⏳ กำลังดาวน์โหลดจาก YouTube…
+                  {% elif ep['source_type'] == 'gdrive' %}
+                    ⏳ กำลังโหลดจาก Drive…
+                  {% elif ep['source_type'] == 'upload' %}
+                    ⏳ กำลังแปลงไฟล์ให้รองรับ iOS…
+                  {% else %}
+                    ⏳ กำลังประมวลผลวิดีโอ…
+                  {% endif %}
                 </span>
               {% elif ep_status == 'error' %}
                 <span class="ep-badge ep-badge--error">❌ โหลดวิดีโอล้มเหลว</span>

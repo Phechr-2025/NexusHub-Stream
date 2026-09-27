@@ -11,6 +11,9 @@ import threading
 import requests
 from email.utils import parseaddr
 import mimetypes
+import shutil
+import subprocess
+from pathlib import Path
 
 from flask import (
     Flask, render_template, request, redirect,
@@ -221,6 +224,173 @@ def media_kind_from_mime(mime_type: str | None) -> str:
     if mime_type and mime_type.startswith("audio/"):
         return "audio"
     return "video"
+
+
+# ---------------------------
+# iOS compatibility helpers
+# ---------------------------
+IOS_VIDEO_CODEC = "h264"
+IOS_AUDIO_CODEC = "aac"
+
+
+def ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None
+
+
+def ffprobe_available() -> bool:
+    return shutil.which("ffprobe") is not None
+
+
+def ffprobe_info(path: str) -> dict | None:
+    """Return ffprobe JSON for a media file, or None when ffprobe is unavailable/failed."""
+    if not ffprobe_available():
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(result.stdout or "{}") or None
+    except Exception:
+        return None
+
+
+def is_ios_playable_mp4(path: str) -> bool:
+    """Best-effort check: MP4 container + H.264 video + AAC audio (or no audio)."""
+    info = ffprobe_info(path)
+    if not info:
+        return False
+
+    fmt = (info.get("format") or {}).get("format_name") or ""
+    fmt = str(fmt).lower()
+    if "mp4" not in fmt and "mov" not in fmt:
+        return False
+
+    video_codec = None
+    audio_codec = None
+    for stream in info.get("streams") or []:
+        if not isinstance(stream, dict):
+            continue
+        stype = stream.get("codec_type")
+        codec = (stream.get("codec_name") or "").lower()
+        if stype == "video" and not video_codec:
+            video_codec = codec
+        if stype == "audio" and not audio_codec:
+            audio_codec = codec
+
+    if video_codec and video_codec != IOS_VIDEO_CODEC:
+        return False
+    if audio_codec and audio_codec != IOS_AUDIO_CODEC:
+        return False
+    return True
+
+
+def ensure_ios_compatible_mp4(input_path: str) -> str:
+    """
+    Convert/remux a local media file to an iOS-friendly MP4.
+
+    - If the file is already MP4 (H.264/AAC), we remux with `+faststart` (no re-encode).
+    - Otherwise, we transcode to H.264/AAC + `+faststart`.
+    - Returns the final MP4 path (may differ from input_path when input is not .mp4).
+
+    This is designed to run at *ingestion time* (upload/Drive/YouTube), not per-request.
+    """
+    if not input_path or not os.path.exists(input_path):
+        return input_path
+    if not ffmpeg_available():
+        # Can't convert without ffmpeg; keep original.
+        return input_path
+
+    base, ext = os.path.splitext(input_path)
+    output_path = input_path if ext.lower() == ".mp4" else base + ".mp4"
+    tmp_path = output_path + ".tmp"
+
+    def _run(cmd: list[str]) -> bool:
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+            return True
+        except Exception:
+            return False
+
+    # 1) If MP4: try a faststart remux (no re-encode).
+    # If ffprobe is available, only trust the copy-remux as "done" when the codecs are iOS-friendly.
+    # If ffprobe is NOT available, we still do a copy-remux (better streaming) and stop there.
+    if ext.lower() == ".mp4" and (not ffprobe_available() or is_ios_playable_mp4(input_path)):
+        ok = _run(["ffmpeg", "-y", "-i", input_path, "-map", "0", "-c", "copy", "-movflags", "+faststart", tmp_path])
+        if ok and os.path.exists(tmp_path):
+            try:
+                os.replace(tmp_path, output_path)
+            except Exception:
+                pass
+            return output_path
+
+    # 2) Otherwise -> transcode to H.264/AAC MP4.
+    ok = _run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            input_path,
+            "-map",
+            "0",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-profile:v",
+            "baseline",
+            "-level",
+            "3.1",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ac",
+            "2",
+            "-movflags",
+            "+faststart",
+            tmp_path,
+        ]
+    )
+    if ok and os.path.exists(tmp_path):
+        try:
+            os.replace(tmp_path, output_path)
+        except Exception:
+            pass
+        if output_path != input_path:
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+        return output_path
+
+    # Conversion failed; keep original.
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except Exception:
+        pass
+    return input_path
 
 def resolve_video_path(file_path: str | None) -> str | None:
     if not file_path:
@@ -1352,7 +1522,6 @@ def download_youtube_file(youtube_id: str, series_id: int) -> str:
     4. best                                   — fallback สุดท้าย
     """
     import yt_dlp
-    import shutil
 
     series_dir = os.path.join(VIDEO_ROOT, f"series_{series_id}")
     os.makedirs(series_dir, exist_ok=True)
@@ -1363,7 +1532,7 @@ def download_youtube_file(youtube_id: str, series_id: int) -> str:
         return output_template
 
     # ตรวจว่ามี ffmpeg หรือเปล่า
-    has_ffmpeg = shutil.which("ffmpeg") is not None
+    has_ffmpeg = ffmpeg_available()
 
     if has_ffmpeg:
         fmt = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best[ext=mp4]/best"
@@ -1414,7 +1583,8 @@ def download_youtube_file(youtube_id: str, series_id: int) -> str:
     if not os.path.exists(output_template):
         raise RuntimeError("ดาวน์โหลดวิดีโอจาก YouTube ไม่สำเร็จ")
 
-    return output_template
+    # ทำให้เป็น MP4 ที่ iOS เล่นได้ + faststart (moov atom อยู่ต้นไฟล์)
+    return ensure_ios_compatible_mp4(output_template)
 
 
 def _background_youtube_download(episode_id: int, youtube_id: str, series_id: int):
@@ -1448,27 +1618,83 @@ def _background_youtube_download(episode_id: int, youtube_id: str, series_id: in
                 pass
 
 
+def _background_prepare_uploaded_video(episode_id: int, input_path: str):
+    """Convert an uploaded/local file to an iOS-friendly MP4 in the background."""
+    with app.app_context():
+        try:
+            converted_path = ensure_ios_compatible_mp4(input_path)
+            rel_path = video_storage_path(converted_path)
+
+            conn = get_db_connection()
+            conn.execute(
+                """
+                UPDATE episodes
+                SET file_path = ?, source_type = 'upload', status = 'ready'
+                WHERE id = ?
+                """,
+                (rel_path, episode_id),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            try:
+                conn = get_db_connection()
+                conn.execute(
+                    "UPDATE episodes SET status = 'error' WHERE id = ?",
+                    (episode_id,),
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+
 def download_drive_file(file_id: str, series_id: int) -> str:
     import gdown
 
     series_dir = os.path.join(VIDEO_ROOT, f"series_{series_id}")
     os.makedirs(series_dir, exist_ok=True)
 
-    output = os.path.join(series_dir, f"{file_id}.mp4")
+    output_mp4 = os.path.join(series_dir, f"{file_id}.mp4")
+    if os.path.exists(output_mp4):
+        return output_mp4
 
-    if os.path.exists(output):
-        return output
+    # ดาวน์โหลดเป็นไฟล์ชั่วคราวก่อน เพราะไฟล์ต้นทางจาก Drive อาจไม่ใช่ mp4 จริง
+    # (แค่ชื่อ .mp4 ไม่ได้ทำให้ iOS เล่นได้)
+    download_tmp = os.path.join(series_dir, f"{file_id}.download")
 
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
     try:
-        gdown.download(url, output, quiet=False)
+        gdown.download(url, download_tmp, quiet=False)
     except Exception as e:
         raise RuntimeError(f"โหลดไฟล์จาก Google Drive ไม่สำเร็จ: {e}")
 
-    if not os.path.exists(output):
+    if not os.path.exists(download_tmp):
         raise RuntimeError("ไม่พบไฟล์ที่ดาวน์โหลดจาก Google Drive")
 
-    return output
+    # แปลง/รีมักซ์ให้เป็น MP4 มาตรฐานสำหรับ iOS
+    converted = ensure_ios_compatible_mp4(download_tmp)
+    if os.path.exists(converted) and os.path.basename(converted) == os.path.basename(output_mp4):
+        return converted
+
+    # ถ้าฟังก์ชันแปลงคืนค่า path อื่น ให้พยายามย้ายให้เป็นชื่อมาตรฐาน {id}.mp4
+    try:
+        if os.path.exists(converted) and converted != output_mp4:
+            os.replace(converted, output_mp4)
+    except Exception:
+        pass
+
+    # ลบไฟล์ download_tmp ถ้ายังอยู่
+    try:
+        if os.path.exists(download_tmp):
+            os.remove(download_tmp)
+    except Exception:
+        pass
+
+    if not os.path.exists(output_mp4):
+        raise RuntimeError("แปลงไฟล์เป็น MP4 สำหรับ iOS ไม่สำเร็จ")
+
+    return output_mp4
 
 
 def _background_drive_download(episode_id: int, drive_id: str, series_id: int):
@@ -1728,6 +1954,16 @@ def stream_episode(episode_id):
     conn.close()
 
     if episode is None or series is None:
+        abort(404)
+
+    # ไม่อนุญาตให้สตรีมตอนที่กำลังประมวลผล (เช่น กำลังโหลด/แปลงไฟล์สำหรับ iOS)
+    try:
+        status = episode["status"] if "status" in episode.keys() else None
+    except Exception:
+        status = None
+    if status == "processing":
+        return Response("processing", status=503, headers={"Retry-After": "30"})
+    if status == "error":
         abort(404)
 
     # ถ้าเรื่องหรืออตอนถูกปิด จะไม่ให้สตรีมวิดีโอ
@@ -3084,6 +3320,7 @@ def admin_episodes(series_id):
         video_url = None
         drive_id = None
         file_path = None
+        upload_saved_path = None
 
         if mode == "direct":
             video_url = request.form.get("video_url", "").strip()
@@ -3127,12 +3364,14 @@ def admin_episodes(series_id):
             rel_path = video_storage_path(save_path)
             file_path = rel_path
             source_type = "upload"
+            upload_saved_path = save_path
 
         else:
             flash("โหมดที่เลือกไม่ถูกต้อง", "error")
             return redirect(url_for("admin_episodes", series_id=series_id))
 
-        initial_status = "processing" if source_type in ("gdrive", "youtube") else "ready"
+        # โหมดที่ต้องทำงานพื้นหลังก่อนดูได้: gdrive / youtube / upload (แปลง iOS)
+        initial_status = "processing" if source_type in ("gdrive", "youtube", "upload") else "ready"
         cur = conn.cursor()
         cur.execute(
             """
@@ -3206,6 +3445,14 @@ def admin_episodes(series_id):
             )
             t.start()
             flash("เพิ่มตอนใหม่สำเร็จ — กำลังดาวน์โหลดวิดีโอจาก YouTube ในพื้นหลัง กรุณารอสักครู่", "info")
+        elif source_type == "upload":
+            t = threading.Thread(
+                target=_background_prepare_uploaded_video,
+                args=(episode_id, upload_saved_path),
+                daemon=True,
+            )
+            t.start()
+            flash("เพิ่มตอนใหม่สำเร็จ — กำลังแปลงไฟล์ให้รองรับ iOS ในพื้นหลัง กรุณารอสักครู่", "info")
         else:
             flash("เพิ่มตอนใหม่สำเร็จแล้ว", "success")
 
@@ -3348,6 +3595,8 @@ def admin_edit_episode(episode_id):
         new_video_url = ep["video_url"]
         new_drive_id = ep["drive_id"]
         new_file_path = ep["file_path"]
+        new_status = ep["status"] if "status" in ep.keys() and ep["status"] is not None else "ready"
+        upload_saved_path = None
 
         def delete_old_file(path):
             if not path:
@@ -3377,6 +3626,7 @@ def admin_edit_episode(episode_id):
                 new_source_type = "youtube"
                 new_drive_id = yt_id   # เก็บ youtube_id ใน drive_id column
                 new_video_url = None
+                new_status = "processing"
             else:
                 if new_source_type in ("gdrive", "upload"):
                     delete_old_file(new_file_path)
@@ -3384,6 +3634,7 @@ def admin_edit_episode(episode_id):
                 new_source_type = "direct"
                 new_video_url = video_url
                 new_drive_id = None
+                new_status = "ready"
 
         elif mode == "gdrive":
             drive_link = request.form.get("drive_link", "").strip()
@@ -3413,6 +3664,7 @@ def admin_edit_episode(episode_id):
             new_source_type = "gdrive"
             new_drive_id = drive_id
             new_video_url = None
+            new_status = "ready"
 
         elif mode == "upload":
             file = request.files.get("file")
@@ -3440,6 +3692,8 @@ def admin_edit_episode(episode_id):
             new_source_type = "upload"
             new_video_url = None
             new_drive_id = None
+            new_status = "processing"
+            upload_saved_path = save_path
         else:
             flash("โหมดที่เลือกไม่ถูกต้อง", "error")
             conn.close()
@@ -3448,7 +3702,7 @@ def admin_edit_episode(episode_id):
         conn.execute(
             """
             UPDATE episodes
-            SET title = ?, description = ?, episode_number = ?, source_type = ?, video_url = ?, drive_id = ?, file_path = ?
+            SET title = ?, description = ?, episode_number = ?, source_type = ?, video_url = ?, drive_id = ?, file_path = ?, status = ?
             WHERE id = ?
             """,
             (
@@ -3459,6 +3713,7 @@ def admin_edit_episode(episode_id):
                 new_video_url,
                 new_drive_id,
                 new_file_path,
+                new_status,
                 episode_id,
             ),
         )
@@ -3505,6 +3760,14 @@ def admin_edit_episode(episode_id):
             )
             t.start()
             flash("บันทึกการแก้ไขตอนเรียบร้อยแล้ว — กำลังดาวน์โหลดวิดีโอจาก YouTube ในพื้นหลัง กรุณารอสักครู่", "info")
+        elif new_source_type == "upload" and upload_saved_path:
+            t = threading.Thread(
+                target=_background_prepare_uploaded_video,
+                args=(episode_id, upload_saved_path),
+                daemon=True,
+            )
+            t.start()
+            flash("บันทึกการแก้ไขตอนเรียบร้อยแล้ว — กำลังแปลงไฟล์ให้รองรับ iOS ในพื้นหลัง กรุณารอสักครู่", "info")
         else:
             flash("บันทึกการแก้ไขตอนเรียบร้อยแล้ว", "success")
         return redirect(url_for("admin_episodes", series_id=ep["series_id"]))
