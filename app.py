@@ -3524,6 +3524,7 @@ def admin_episodes(series_id):
 
         if not title:
             flash("กรุณากรอกชื่อตอน", "error")
+            conn.close()
             return redirect(url_for("admin_episodes", series_id=series_id))
 
         source_type = None
@@ -3536,6 +3537,7 @@ def admin_episodes(series_id):
             video_url = request.form.get("video_url", "").strip()
             if not video_url:
                 flash("กรุณากรอกลิงก์วิดีโอแบบ mp4", "error")
+                conn.close()
                 return redirect(url_for("admin_episodes", series_id=series_id))
             yt_id = extract_youtube_id(video_url)
             if yt_id:
@@ -3551,6 +3553,7 @@ def admin_episodes(series_id):
             drive_id = extract_drive_id(drive_text)
             if not drive_id:
                 flash("ไม่สามารถดึง Drive ID จากลิงก์ได้ กรุณาตรวจสอบอีกครั้ง", "error")
+                conn.close()
                 return redirect(url_for("admin_episodes", series_id=series_id))
             source_type = "gdrive"
 
@@ -3558,6 +3561,7 @@ def admin_episodes(series_id):
             file = request.files.get("file")
             if not file or file.filename == "":
                 flash("กรุณาเลือกไฟล์วิดีโอสำหรับอัปโหลด", "error")
+                conn.close()
                 return redirect(url_for("admin_episodes", series_id=series_id))
 
             filename = os.path.basename(file.filename)
@@ -3578,6 +3582,7 @@ def admin_episodes(series_id):
 
         else:
             flash("โหมดที่เลือกไม่ถูกต้อง", "error")
+            conn.close()
             return redirect(url_for("admin_episodes", series_id=series_id))
 
         # โหมดที่ต้องทำงานพื้นหลังก่อนดูได้: gdrive / youtube / upload (แปลง iOS)
@@ -3665,6 +3670,11 @@ def admin_episodes(series_id):
             flash("เพิ่มตอนใหม่สำเร็จ — กำลังแปลงไฟล์ให้รองรับ iOS ในพื้นหลัง กรุณารอสักครู่", "info")
         else:
             flash("เพิ่มตอนใหม่สำเร็จแล้ว", "success")
+
+        # Post/Redirect/Get: ป้องกันการรีเฟรชแล้วขึ้น Confirm Form Resubmission
+        # และป้องกันการสร้างตอนซ้ำจากการกดยืนยันรีส่งฟอร์ม
+        conn.close()
+        return redirect(url_for("admin_episodes", series_id=series_id))
 
     episodes = conn.execute(
         """
