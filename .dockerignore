@@ -1,0 +1,26 @@
+.git
+.github
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+.env
+.env.*
+node_modules
+
+# App data / runtime artifacts
+/data
+video_files
+covers
+episode_covers
+backups
+*.db
+*.sqlite
+*.sqlite3
+logs
+
+# OS/editor
+.DS_Store
+Thumbs.db

@@ -3,11 +3,13 @@
 เว็บดูวิดีโอ/ซีรีส์ด้วย **Flask** + ตัวช่วยจัดการบนเครื่อง/ VPS ชื่อ `menuwed`.
 
 - สตาร์ทโปรดักชันด้วย `sh start.sh` (พยายามใช้ `gunicorn` ก่อน และ fallback ไป `python app.py`)
-- มี `nixpacks.toml` ขอ `ffmpeg` (เหมาะกับ Railway)
+- มี `Dockerfile` ติดตั้ง `ffmpeg/ffprobe` อัตโนมัติ (รัน/เช็ค iOS ได้ครบใน Railway)
 
 ---
 
 ## Deploy บน Railway (สั้น ๆ)
+
+> Repo นี้มี **Dockerfile** เพื่อให้ Railway ติดตั้ง `ffmpeg/ffprobe` ให้เองอัตโนมัติ (ใช้ตรวจ/แปลงไฟล์ให้ดูได้ทุกอุปกรณ์)
 
 1) Railway → **New Project** → **Deploy from GitHub repo** → เลือก repo นี้  
 2) ตั้ง **Start Command**:
